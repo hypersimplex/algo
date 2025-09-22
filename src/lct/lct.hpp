@@ -18,6 +18,8 @@ struct Node {
     Node * last_path_parent = nullptr;
   };
   int val = 0;
+  int sum = 0;
+  int sum_virtual_children = 0;
   Node * ns[2] = {}; // aux. (splay tree) children links
   Node * p = nullptr; //link to parent within aux. tree
   // inter path (aux. tree) connection:
@@ -33,13 +35,18 @@ struct Node {
   Node * & nr(){
     return ns[Right];
   }
-  Node(int v, Node* parent): val(v), p(parent) {}
-  Node(){}
+  Node(int v, Node* parent): val(v), p(parent) { calc(); }
+  Node(int v) : val(v) { calc(); }
+
+  void calc(){
+    // calc sum
+    sum = val + sum_virtual_children + (nl()? nl()->sum : 0) + (nr()? nr()->sum : 0);
+  }
   
   // make an edge between current node and child node
   // this assumes current and child node are in disjoint represented trees
   void link(Node * other){
-    assert(!is_same_repr_tree(other));
+    assert(!is_connected(other));
 
     // make current node available in the top aux. tree of its represented tree
     // reroot current node
@@ -54,6 +61,8 @@ struct Node {
     assert(!other->path_parent);
     nl() = other;
     other->p = this;
+
+    calc();
   }
   // cut current node and its parent, making 2 separate represented trees
   // this assumes the parent exists
@@ -67,9 +76,18 @@ struct Node {
     // parent node's path_parent is preserved
     nl()->p = nullptr;
     nl() = nullptr;
+
+    calc();
   }
   void cut(Node * other){
     reroot();
+    {
+      // sanity check: other's parent node should be current node,
+      // => within the aux. tree, it sould be left preferred child in the splay tree
+      other->expose();
+      assert(other->nl());
+      assert(other->nl() == this);
+    }
     other->cut();
   }
   // get the root of the represented tree
@@ -114,14 +132,14 @@ struct Node {
       Node * pp = path_parent->splay();
       // split current node's path_parent's aux tree: it's right child becomes a new aux. tree, detach it
       {
-	pp->split_aux_tree();
+        pp->split_aux_tree();
       }
       
       // merge current node's path_parent's aux. tree and current node's aux tree
       {
-	// cur->path_parent's right child is empty since we just detached it earlier
-	assert(!pp->nr());
-	pp->attach_child(Right, this);
+        // cur->path_parent's right child is empty since we just detached it earlier
+        assert(!pp->nr());
+        pp->attach_child(Right, this);
       }
       splay(); //this will update current node's path_parent
       // repeat the process to merge ancestor paths' aux. trees on way to root of represented tree
@@ -137,9 +155,18 @@ struct Node {
     if(!nr()){
       return;
     }
+
+    // right subtree becomes a virtual child of current aux. tree
+
+    // this assumes the right node was a preferred child of current node,
+    // so add its contribution to virtual sum
+    sum_virtual_children += nr()-> sum;
+
     nr()->path_parent = this;
     nr()->p = nullptr;
     nr() = nullptr;
+
+    calc();
   }
   // attach node as right child within current aux tree
   void attach_child(int side, Node * child){
@@ -148,15 +175,21 @@ struct Node {
     if(child){
       child->path_parent = nullptr;
       child->p = this;
+
+      // this assum the child node was a virtual child of current aux. tree,
+      // so subtract its contribution to virtual sum
+      sum_virtual_children -= child->sum;
     }
+
+    calc();
   }
-  bool is_same_repr_tree(Node * other){
+  bool is_connected(Node * other){
     auto root0 = get_root();
     auto root1 = other->get_root();
     return root0 == root1;
   }
   Node * lca(Node * other){
-    assert(is_same_repr_tree(other));
+    assert(is_connected(other));
     other->expose();
     auto [_, last_path_parent] = expose();
     if(!last_path_parent){
@@ -189,6 +222,9 @@ struct Node {
     ns[dir]->p = this;
     path_parent = p->path_parent;
     p = pp;
+
+    ns[dir]->calc();
+    calc();
   }
   Node * splay(){
     while(p){
