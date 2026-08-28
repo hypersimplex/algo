@@ -197,9 +197,9 @@ struct Node {
     }
     return last_path_parent;
   }
-  int get_branch(){
+  optional<int> get_branch(){
     if(!p){
-      return 0;
+      return nullopt;
     }
     if(p->nl() == this){ //left
       return 0;
@@ -207,12 +207,23 @@ struct Node {
     assert(p->nr() == this); //right
     return 1;
   }
-  //rotate parent left/right (depending on dir) and let it become current node's (left/right) child
-  void rot(int dir){ //dir: 0=>left, 1=>right
+  // rotate current node left/right wrt. its parent and
+  // let the original parent become the current node's
+  // (left/right) child
+  //
+  // direction of rotation has no degree of freedom:
+  //   current node is a left child, then rotate right
+  //   current node is a right child, then rotate left
+  void rot(){
+    auto my_dir = get_branch();
+    assert(my_dir);
+    int dir = !my_dir.value();
+
     auto pp = p->p;
     auto p_branch = p->get_branch();
-    if(pp){
-      pp->ns[p_branch] = this;
+    if(p_branch){
+      // guaranteed pp is not null
+      pp->ns[p_branch.value()] = this;
     }
     p->ns[!dir] = std::move(ns[dir]);
     if(p->ns[!dir]){
@@ -233,22 +244,22 @@ struct Node {
         p->p->propagate();
         p->propagate();
         propagate();
-        int my_dir = get_branch();
-        int parent_dir = p->get_branch();
+        int my_dir = get_branch().value();
+        int parent_dir = p->get_branch().value();
         if(my_dir == parent_dir){
           // right-right/left-left case: rotate parent first, then self
-          p->rot(!parent_dir);
-          rot(!my_dir);
+          p->rot();
+          rot();
         }else{
           // right-left/left-right case: rotate self twice
-          rot(!my_dir);
-          rot(!parent_dir);
+          rot();
+          rot();
         }
       }else{
         // right/left case: single rotation
         p->propagate();
         propagate();
-        rot(!get_branch());
+        rot();
       }
     }
     return this;
